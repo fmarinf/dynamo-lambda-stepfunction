@@ -1,0 +1,91 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "Add order entry",
+  "States": {
+    "Add order entry": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "CustomerOrdersTable",
+        "Item": {
+          "customerId": {
+            "S.$": "$.customerId"
+          },
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        }
+      },
+      "ResultSelector": {
+        "statusCode.$": "$.SdkHttpMetadata.HttpStatusCode"
+      },
+      "ResultPath": "$.result",
+      "Next": "Choice"
+    },
+    "Choice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.result.statusCode",
+          "NumericEquals": 200,
+          "Next": "Payment charge by customer"
+        }
+      ],
+      "Default": "Fail"
+    },
+    "Payment charge by customer": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "arn:aws:lambda:reigon:account-id-number:function:test:$LATEST"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Success",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Fallback Delete Fail Order",
+          "ResultPath": "$.result"
+        }
+      ],
+      "ResultPath": "$.result"
+    },
+    "Fallback Delete Fail Order": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:deleteItem",
+      "Parameters": {
+        "TableName": "CustomerOrdersTable",
+        "Key": {
+          "customerId": {
+            "S.$": "$.customerId"
+          },
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        }
+      },
+      "Next": "Fail"
+    },
+    "Success": {
+      "Type": "Succeed"
+    },
+    "Fail": {
+      "Type": "Fail"
+    }
+  }
+}
